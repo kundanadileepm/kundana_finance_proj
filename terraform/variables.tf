@@ -14,9 +14,3 @@ variable "private_key_path" {
   description = "Path to your .pem file"
 }
 
-variable "ami_id" {
-  description = "Ubuntu AMI ID"
-  default     = "ami-0a7d80731ae1b2435"
-}
-
-

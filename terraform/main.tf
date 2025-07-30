@@ -1,29 +1,33 @@
 provider "aws" {
-  region = var.aws_region
+  region = "us-east-1"
 }
 
-resource "aws_instance" "tools" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  key_name               = var.key_name
-  associate_public_ip_address = true
+resource "aws_instance" "master" {
+  ami           = "ami-0a7d80731ae1b2435"
+  instance_type = "t2.medium"
+  key_name      = "Assignment-Key"
 
   tags = {
-    Name = "ci-cd-tools"
-  }
-
-  connection {
-    type        = "ssh"
-    user        = "ubuntu"
-    private_key = file(var.private_key_path)
-    host        = self.public_ip
-  }
-
-  provisioner "remote-exec" {
-    inline = [
-      "sudo apt update -y",
-      "sudo apt install -y docker.io git maven openjdk-17-jdk"
-    ]
+    Name = "k8s-master"
   }
 }
 
+resource "aws_instance" "worker" {
+  ami           = "ami-0a7d80731ae1b2435"
+  instance_type = "t2.medium"
+  key_name      = "Assignment-Key"
+
+  tags = {
+    Name = "k8s-worker"
+  }
+}
+
+resource "aws_instance" "monitoring" {
+  ami           = "ami-0a7d80731ae1b2435"
+  instance_type = "t2.medium"
+  key_name      = "Assignment-Key"
+
+  tags = {
+    Name = "monitoring-node"
+  }
+}

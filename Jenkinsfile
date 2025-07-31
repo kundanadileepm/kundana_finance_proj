@@ -2,48 +2,38 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = 'kundanadileepm/kundana_finance_app:latest'
+        IMAGE_NAME = "kundanadileepm/finance-app"
+        IMAGE_TAG = "latest"
     }
 
     stages {
-        stage('Checkout') {
+        stage('Clone') {
             steps {
-                git 'https://github.com/kundanadileepm/kundana_finance_proj.git'
+                git url: 'https://github.com/kundanadileepm/kundana_finance_proj.git', branch: 'main'
             }
         }
 
-        stage('Build with Maven') {
+        stage('Build & Test') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh 'mvn clean verify'
             }
         }
 
-        stage('Docker Build & Push') {
+        stage('Docker Build') {
             steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        sh '''
-                            docker build -t $IMAGE_NAME .
-                            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                            docker push $IMAGE_NAME
-                            docker logout
-                        '''
-                    }
+                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    sh '''
+                      echo "$PASSWORD" | docker login -u "$USERNAME" --password-stdin
+                      docker push $IMAGE_NAME:$IMAGE_TAG
+                    '''
                 }
             }
-        }
-    }
-
-    post {
-        success {
-            echo '✅ Build and push successful!'
-        }
-        failure {
-            echo '❌ Build or push failed.'
         }
     }
 }

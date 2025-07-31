@@ -8,17 +8,7 @@ resource "aws_instance" "master" {
   key_name      = "Assignment-Key"
 
   tags = {
-    Name = "k8s-master"
-  }
-}
-
-resource "aws_instance" "worker" {
-  ami           = "ami-0a7d80731ae1b2435"
-  instance_type = "t2.medium"
-  key_name      = "Assignment-Key"
-
-  tags = {
-    Name = "k8s-worker"
+    Name = "master-node"
   }
 }
 

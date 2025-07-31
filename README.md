@@ -34,7 +34,7 @@ Step-by-Step Workflow:
 
 1. Code Push & Trigger:
 
-•	Developer pushes code to the `master` branch on GitHub.
+•	Developer pushes code to the `master` or 'main' branch on GitHub.
 •	This action triggers a Jenkins pipeline using a webhook integration.
 
 2. Build Stage (CI):

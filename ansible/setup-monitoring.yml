@@ -1,100 +1,156 @@
-- name: Creating prometheus user group
-  group: name="{{groupId}}"
+---
+- name: Install Docker, Prometheus, and Grafana
+  hosts: monitoring
   become: true
 
-- name: Creating prometheus user
-  user:
-    name: "{{userId}}"
-    group: "{{groupId}}"
-    system: yes
-    shell: "/sbin/nologin"
-    comment: "{{userId}} nologin User"
-    createhome: "no"
-    state: present
+  vars:
+    prometheus_version: "2.52.0"
 
-- name: Install prometheus
-  unarchive:
-    src: "https://github.com/prometheus/prometheus/releases/download/v{{ version }}/prometheus-{{ version }}.linux-amd64.tar.gz"
-    dest: /tmp/
-    remote_src: yes
+  tasks:
 
-- name: Copy prometheus file to bin
-  copy:
-    src: "/tmp/prometheus-{{ version }}.linux-amd64/prometheus"
-    dest: "/usr/local/bin/prometheus"
-    owner: "{{userId}}"
-    group: "{{groupId}}"
-    remote_src: yes
-    mode: 0755
+  #### ----------------------
+  #### 1. Install Docker
+  #### ----------------------
+  - name: Install apt dependencies for Docker
+    apt:
+      name:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg
+        - lsb-release
+      state: present
+      update_cache: yes
 
-- name: Delete prometheus tmp folder
-  file:
-    path: '/tmp/prometheus-{{ version }}.linux-amd64'
-    state: absent
+  - name: Add Docker’s official GPG key
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
 
-- name: Creates directory
-  file: 
-    path: "/data/prometheus/"
-    state: directory
-    owner: "{{userId}}"
-    group: "{{groupId}}"
-    mode: 0755
+  - name: Set up Docker repository
+    apt_repository:
+      repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+      state: present
 
-- name: Creates directory
-  file: 
-    path: "/etc/prometheus/"
-    state: directory
-    owner: "{{userId}}"
-    group: "{{groupId}}"
-    mode: 0755
+  - name: Install Docker Engine
+    apt:
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+      state: present
+      update_cache: yes
 
-- name: config file
-  template:
-    src: prometheus.conf.j2
-    dest: /etc/prometheus/prometheus.conf
+  - name: Enable and start Docker
+    systemd:
+      name: docker
+      enabled: true
+      state: started
 
-- name: alert config file
-  copy:
-    src: "{{ role_path }}/files/alertrules.yml"
-    dest: /etc/prometheus/alert.rules.yml
+  #### ----------------------
+  #### 2. Install Prometheus
+  #### ----------------------
+  - name: Create prometheus user
+    user:
+      name: prometheus
+      shell: /sbin/nologin
 
-- name: Copy systemd init file
-  template:
-    src: init.service.j2
-    dest: /etc/systemd/system/prometheus.service
-  notify: systemd_reload
+  - name: Ensure Prometheus directories exist
+    file:
+      path: "{{ item }}"
+      state: directory
+      owner: prometheus
+      group: prometheus
+    loop:
+      - /etc/prometheus
+      - /var/lib/prometheus
+      - /opt/prometheus
 
-- name: Start prometheus service
-  service:
-    name: prometheus
-    state: started
-    enabled: yes
+  - name: Download Prometheus tarball
+    get_url:
+      url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+      dest: /tmp/prometheus.tar.gz
 
-- name: Check if prometheus is accessible
-  uri:
-    url: http://localhost:9090
-    method: GET
-    status_code: 200
+  - name: Extract Prometheus binaries
+    unarchive:
+      src: /tmp/prometheus.tar.gz
+      dest: /opt/prometheus
+      remote_src: yes
+      extra_opts: [--strip-components=1]
 
-- name: Install grafana
-  yum:
-    name: https://s3-us-west-2.amazonaws.com/grafana-releases/release/grafana-{{ version }}-1.x86_64.rpm
-    state: latest
+  - name: Copy Prometheus binaries to /usr/local/bin
+    copy:
+      src: "/opt/prometheus/{{ item }}"
+      dest: "/usr/local/bin/{{ item }}"
+      mode: '0755'
+      remote_src: yes
+    loop:
+      - prometheus
+      - promtool
 
-- name: "Grafana configuration file copy"
-  template:
-    src: "grafana.conf.j2"
-    dest: /etc/grafana/grafana.ini
-  notify: event_restart_grafana
+  - name: Copy Prometheus config
+    copy:
+      src: /opt/prometheus/prometheus.yml
+      dest: /etc/prometheus/prometheus.yml
+      owner: prometheus
+      group: prometheus
 
-- name: "Grafana server started"
-  service:
-    name: grafana-server
-    enabled: true
-    state: started
+  - name: Create Prometheus systemd service
+    copy:
+      dest: /etc/systemd/system/prometheus.service
+      content: |
+        [Unit]
+        Description=Prometheus Monitoring
+        After=network.target
 
-- name: "Check if Grafana is accessible."
-  uri:
-    url: http://127.0.0.1:3000
-    method: GET
-    status_code: 200
+        [Service]
+        User=prometheus
+        ExecStart=/usr/local/bin/prometheus \
+          --config.file=/etc/prometheus/prometheus.yml \
+          --storage.tsdb.path=/var/lib/prometheus/ \
+          --web.listen-address=:9090
+        Restart=on-failure
+
+        [Install]
+        WantedBy=multi-user.target
+
+  - name: Reload and start Prometheus
+    systemd:
+      daemon_reload: yes
+      name: prometheus
+      enabled: true
+      state: started
+
+  #### ----------------------
+  #### 3. Install Grafana
+  #### ----------------------
+  - name: Add Grafana GPG key and repo
+    block:
+      - name: Create keyrings dir
+        file:
+          path: /etc/apt/keyrings/
+          state: directory
+
+      - name: Add Grafana GPG key
+        shell: |
+          wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor | tee /etc/apt/keyrings/grafana.gpg > /dev/null
+        args:
+          executable: /bin/bash
+
+      - name: Add Grafana repository
+        apt_repository:
+          repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main"
+          filename: grafana
+          state: present
+
+  - name: Install Grafana
+    apt:
+      name: grafana
+      state: present
+      update_cache: yes
+
+  - name: Enable and start Grafana
+    systemd:
+      name: grafana-server
+      enabled: true
+      state: started
